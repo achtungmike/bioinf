@@ -1,399 +1,260 @@
+
+# coding: utf-8
+
+# Using 3 protein families (globins, C2H2 zinc fingers, cytochromes P450) build a training set consisting of 10 representative proteins with known structures in each family. 
+# 
+# 1. Using cross-validation, train and validate 
+#     a k-NN predictor 
+#         that takes amino acid sequence as input 
+#             and assigns one of the 3 secondary structure states to each amino acid 
+#                 residue: helix, strand, coil. 
+#                     Use a sliding window (of some length) 
+#                         to define feature vectors for each amino acid residues, 
+#                             compare a simple binary vector 
+#                                 to Blosum62 feature vector
+
+# In[33]:
+
+
+
+
+
+import pandas as pd
 import numpy as np
-import tabulate
+from sklearn.neighbors import NearestNeighbors
+
+
 
-# Test Sequences:
-# S1: ATCTGTTCTT
-# S2: CTTTATGTT
 
-# Build our Matrix in a Pandas Dataframe.
+# read secondary struct file
+sec = open("data/ss.txt","r").readlines()
 
-def get_seqs():
-    #seq1 = input("Please enter your first sequence for alignment.\n")
-    #seq2 = input("Now, please enter your second seqeuence for alignment.\n")
+# blosum62 dict
+blos = {'A': [4, -1, -2, -2, 0, -1, -1, 0, -2, -1, -1, -1, -1, -2, -1, 1, 0, -3, -2, 0],
+        'R': [-1, 5, 0, -2, -3, 1, 0, -2, 0, -3, -2, 2, -1, -3, -2, -1, -1, -3, -2, -3],
+        'N': [-2, 0, 6, 1, -3, 0, 0, 0, 1, -3, -3, 0, -2, -3, -2, 1, 0, -4, -2, -3],
+        'D': [-2, -2, 1, 6, -3, 0, 2, -1, -1, -3, -4, -1, -3, -3, -1, 0, -1, -4, -3, -3, ],
+        'C': [0, -3, -3, -3, 9, -3, -4, -3, -3, -1, -1, -3, -1, -2, -3, -1, -1, -2, -2, -1, ],
+        'Q': [-1, 1, 0, 0, -3, 5, 2, -2, 0, -3, -2, 1, 0, -3, -1, 0, -1, -2, -1, -2, ],
+        'E': [-1, 0, 0, 2, -4, 2, 5, -2, 0, -3, -3, 1, -2, -3, -1, 0, -1, -3, -2, -2, ],
+        'G': [0, -2, 0, -1, -3, -2, -2, 6, -2, -4, -4, -2, -3, -3, -2, 0, -2, -2, -3, -3, ],
+        'H': [-2, 0, 1, -1, -3, 0, 0, -2, 8, -3, -3, -1, -2, -1, -2, -1, -2, -2, 2, -3, ],
+        'I': [-1, -3, -3, -3, -1, -3, -3, -4, -3, 4, 2, -3, 1, 0, -3, -2, -1, -3, -1, 3, ],
+        'L': [-1, -2, -3, -4, -1, -2, -3, -4, -3, 2, 4, -2, 2, 0, -3, -2, -1, -2, -1, 1, ],
+        'K': [-1, 2, 0, -1, -3, 1, 1, -2, -1, -3, -2, 5, -1, -3, -1, 0, -1, -3, -2, -2, ],
+        'M': [-1, -1, -2, -3, -1, 0, -2, -3, -2, 1, 2, -1, 5, 0, -2, -1, -1, -1, -1, 1, ],
+        'F': [-2, -3, -3, -3, -2, -3, -3, -3, -1, 0, 0, -3, 0, 6, -4, -2, -2, 1, 3, -1, ],
+        'P': [-1, -2, -2, -1, -3, -1, -1, -2, -2, -3, -3, -1, -2, -4, 7, -1, -1, -4, -3, -2, ],
+        'S': [1, -1, 1, 0, -1, 0, 0, 0, -1, -2, -2, 0, -1, -2, -1, 4, 1, -3, -2, -2, ],
+        'T': [0, -1, 0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1, 1, 5, -2, -2, 0, ],
+        'W': [-3, -3, -4, -4, -2, -2, -3, -2, -2, -3, -2, -3, -1, 1, -4, -3, -2, 11, 2, -3, ],
+        'Y': [-2, -2, -2, -3, -2, -1, -2, -3, 2, -1, -1, -2, -1, 3, -3, -2, -2, 2, 7, -1, ],
+        'V': [0, -3, -3, -3, -1, -2, -2, -3, -3, 3, 1, -2, 1, -1, -2, -2, 0, -3, -1, 4, ]}
 
-    # For testing:
-    seq1 = "ATCTGTTCTT"
-    seq2 = "CTTTATGTT"
-    #seq1 = "ATCT"
-    #seq2 = "CTT"
-
-    return (seq1, seq2)
 
+# In[34]:
 
-# Build the DP table
-def build_tab(seq1, seq2):
 
-    s1 = list(seq1)
-    s1_len = len(seq1)
-    s2 = list(seq2)
-    s2_len = len(seq2)
+# Pull list of PDBs from Excel file
+# Input:
+#     Sheet name that the list of PDBs are in that you want
+# Ouput:
+#     List of PDBs found in that Excel sheet
+def get_pdb(sheet_name):
+    pdbs = pd.read_excel("data/pdbs.xlsx",sheet_name=sheet_name,header=None)
+    ret = list(pdbs[0])
+    return(ret)
 
-
-    # S1 goes across top, S2 down side.
-
-    # Create our DP table:
-    tab = np.zeros((s2_len, s1_len), np.object)
-    tab.fill("_")
-    # Create a table to store directions
-    dir = np.zeros((s2_len, s1_len), np.object)
-    dir.fill("_")
-
-    #  Fill our first row and col with 0's
-    for x in range(0, s2_len):
-        for y in range(0,s1_len):
-            if (x == 0) or (y == 0):
-                tab[x,y] = 0
 
-    #pretty_print(seq1, seq2, tab, dir)
-
-    # Loop over our 2D array, first select a row then go through each column
-    # in that row. (skipping row 1 and column 1 which stay 0)
-    for x in range(1, s2_len):
-        for y in range(1, s1_len):
+# In[55]:
+#
+#
+# def find_pdb(pdb, sec_file):
+#     seq_ind = pdb + ":sequence" in sec_file
+#     ss_ind = pdb + ":secstr" in sec_file
+#     return((seq_ind, ss_ind))
 
-            # Look at diag
-            diag = tab[x-1,y-1]
-            # If we match
-            if (s1[y] == s2[x]):
-                diag += 1
-            else:
-                diag -= 1
-
-            # (gap) Coming from horizontal
-            hor = tab[x,y-1] -1
-            vert = tab[x-1,y] -1
-
-            # Set the score in the table
-            tab[x,y] = max(diag, hor, vert)
-
-            # Determine direction, default to horizontal gap
-            if (tab[x,y] == hor):
-                dir[x,y] = '>'
-            elif (tab[x,y] == vert):
-                dir[x,y] = 'V'
-            else:
-                dir[x,y] = '*'
-
-            #pretty_print(seq1, seq2, tab, dir)
-            #print("================================================")
-    return (tab,dir)
-
-
-def align(seq1, seq2, tab, dir):
-
-    al_seq1 = ""
-    al_seq2 = ""
-
-    # First thing we need to do: find the max in the last col.
-    col = tab[:,(tab.shape[1] -1)]
-    x_max = max(col)
-    x_max_ind = np.where(col == x_max)
-    x_max_ind = x_max_ind[0][-1]
-
-    row = tab[(tab.shape[0] -1),:]
-    y_max = max(row)
-    y_max_ind = np.where(row == y_max)
-    y_max_ind = y_max_ind[0][-1]
-
-    # Need to loop backwards through x and y.
-    x = tab.shape[0] - 1
-    y = tab.shape[1] - 1
-
-
-    # Starting from last row
-    if y_max > x_max:
-        # Loop backwards till we hit first row or col
-        while x > 0 and y > 0:
-
-            print("Seq1: ", al_seq1)
-            print("Seq2: ", al_seq2)
-            print("===========================")
-
-            # Prepend Gap on Sequence 2
-            if y > y_max_ind:
-                al_seq1 = seq1[y] + al_seq1
-                al_seq2 = "-" + al_seq2
-                # decrement y
-                y -= 1
-                continue
-
-            # If we should move diag (no gaps)
-            if dir[x, y] == '*':
-                al_seq1 = seq1[y] + al_seq1
-                al_seq2 = seq2[x] + al_seq2
-
-                # decrement both x and y
-                x -= 1
-                y -= 1
-
-            # Horizontal gap
-            elif dir[x, y] == '>':
-                al_seq1 = seq1[y] + al_seq1
-                al_seq2 = '-' + al_seq2
-                y -= 1
-
-            # Vertical gap
-            else:
-                al_seq1 = '-' + al_seq1
-                al_seq2 = seq2[x] + al_seq2
-                x -= 1
-
-        print(al_seq1)
-        print(al_seq2)
-
-
-    # Starting from last column
-    else:
-        # Loop backwards till we hit first row or col
-        while x > 0 and y > 0:
-
-            print("Seq1: ", al_seq1)
-            print("Seq2: ", al_seq2)
-
-            # Prepend Gap on Sequence 2
-            if x > x_max_ind:
-                al_seq1 = seq1[y] + al_seq1
-                al_seq2 = "-" + al_seq2
-                # decrement y
-                y -= 1
-                continue
-
-            # If we should move diag (no gaps)
-            if dir[x, y] == '*':
-                al_seq1 = seq1[y] + al_seq1
-                al_seq2 = seq2[x] + al_seq2
-
-                # decrement both x and y
-                x -= 1
-                y -= 1
-
-            # Horizontal gap
-            elif dir[x, y] == '>':
-                al_seq1 = seq1[y] + al_seq1
-                al_seq2 = '-' + al_seq2
-                y -= 1
-
-            # Vertical gap
-            else:
-                al_seq1 = '-' + al_seq1
-                al_seq2 = seq2[x] + al_seq2
-                x -= 1
-
-        print(al_seq1)
-        print(al_seq2)
-
-
-    # Dump the rest of the chars into seq and prepend with gaps for other
-    if x > 0:
-        while x > 0:
-            al_seq1 = '-' + al_seq1
-            al_seq2 = seq2[x] + al_seq2
-            x -= 1
-
-    elif y > 0:
-        while y > 0:
-            al_seq1 = seq1[y] + al_seq1
-            al_seq2 = '-' + al_seq2
-            y -= 1
-
-    return (al_seq1, al_seq2)
-
-def pretty_print(seq1, seq2, tab, dir):
-
-    s1 = list(seq1)
-    s2 = list(seq2)
-
-    print(tabulate.tabulate(tab, headers=s1, showindex=s2, tablefmt="grid"))
-    print("--------------------------------------")
-    print(tabulate.tabulate(dir, headers=s1, showindex=s2, tablefmt="grid"))
-
-
-def ps_build_tab(seq1, seq2):
-
-    s1 = list(seq1)
-    s1_len = len(seq1)
-    s2 = list(seq2)
-    s2_len = len(seq2)
-
-
-    # S1 goes across top, S2 down side.
-
-    # Create our DP table:
-    tab = np.zeros((s2_len, s1_len), np.object)
-    tab.fill("_")
-    # Create a table to store directions
-    dir = np.zeros((s2_len, s1_len), np.object)
-    dir.fill("_")
-
-    #  Fill our first row and col with 0's
-    for x in range(0, s2_len):
-        for y in range(0,s1_len):
-            if (x == 0):
-                tab[x,y] = 0
-            if (y == 0):
-                # Origin
-                if x == 0:
-                    tab[x,y] = 0
-                # Below origin (take score from above and sub 1 for new gap)
-                else:
-                    tab[x,y] = tab[x-1,y] - 1
-    #pretty_print(seq1, seq2, tab, dir)
-
-    # Loop over our 2D array, first select a row then go through each column
-    # in that row. (skipping row 1 and column 1 which stay 0)
-    for x in range(1, s2_len):
-        for y in range(1, s1_len):
-
-            # Look at diag
-            diag = tab[x-1,y-1]
-            # If we match
-            if (s1[y] == s2[x]):
-                diag += 1
-            else:
-                diag -= 1
-
-            # (gap) Coming from horizontal
-            hor = tab[x,y-1] -1
-            vert = tab[x-1,y] -1
-
-            # Set the score in the table
-            tab[x,y] = max(diag, hor, vert)
-
-            # Determine direction, default to horizontal gap
-            if (tab[x,y] == hor):
-                dir[x,y] = '>'
-            elif (tab[x,y] == vert):
-                dir[x,y] = 'V'
-            else:
-                dir[x,y] = '*'
-
-            #pretty_print(seq1, seq2, tab, dir)
-            #print("================================================")
-    return (tab,dir)
-
-# Prefix suffix align (Only allow free gaps at end of seq 1 (suffix) and start of seq2 (prefix)
-def ps_align(seq1, seq2, tab, dir):
-
-    al_seq1 = ""
-    al_seq2 = ""
-
-    # First thing we need to do: find the max in the last col.
-    col = tab[:,(tab.shape[1] -1)]
-    x_max = max(col)
-    x_max_ind = np.where(col == x_max)
-    x_max_ind = x_max_ind[0][-1]
-
-
-    # Need to loop backwards through x and y.
-    x = tab.shape[0] - 1
-    y = tab.shape[1] - 1
-
-
-
-    # Starting from last column
-
-    # Loop backwards till we hit first row or col
-    while x > 0 and y > 0:
-
-        print("Seq1: ", al_seq1)
-        print("Seq2: ", al_seq2)
-
-        # Prepend Gap on Sequence 1 (and line to seq 2)
-        if x > x_max_ind:
-            al_seq2 = seq2[x] + al_seq2
-            al_seq1 = "-" + al_seq1
-            # decrement x
-            x -= 1
-            continue
-
-        # If we should move diag (no gaps)
-        if dir[x, y] == '*':
-            al_seq1 = seq1[y] + al_seq1
-            al_seq2 = seq2[x] + al_seq2
-
-            # decrement both x and y
-            x -= 1
-            y -= 1
-
-        # Horizontal gap
-        elif dir[x, y] == '>':
-            al_seq1 = seq1[y] + al_seq1
-            al_seq2 = '-' + al_seq2
-            y -= 1
-
-        # Vertical gap
+
+# In[35]:
+
+
+# Pull the full seq or secondary struct from file
+def pull_full_text(ind, ss_file):
+    #ind is the index in the file where we start from
+
+    txt = ""
+
+    # skip the first line which contains the seq marker >
+    ind += 1
+    # Get current line and strip off new line
+    tmp = ss_file[ind]
+    tmp = tmp.strip('\n')
+    # Until we hit another Seq tag (>)
+    while ">" not in tmp:
+        # We ran off the end of the file, break
+        if ind == len(ss_file) - 1:
+            break
+        # append string here to txt removing the new line
+        txt += tmp
+
+        # Update index and tmp for next loop
+        ind += 1
+        tmp = ss_file[ind]
+        tmp = tmp.strip('\n')
+    return(txt)
+
+
+# In[36]:
+
+
+# Translate secondary structure into more simple form of
+# Coil, Helix, or Extended (beta sheet)
+def trans_ss(ss_str):
+    ret = ""
+    for x in range(len(ss_str)):
+        if ss_str[x] in [' ', 'S','T']:
+            ret += 'c'
+        elif ss_str[x] in ['G', 'I', 'H']:
+            ret += 'h'
+        elif ss_str[x] in ['B']:
+            ret += 'e'
+
+    return(ret)
+
+
+# In[38]:
+
+
+#Get index of our sequence and our secondary structure for this PDB
+def get_ind(pdb, sec):
+    for x in range(len(sec)):
+        # We have a match on sequence
+        if(pdb + ":sequence" in sec[x]):
+            seq_ind = x
+        # We have a match secondary structure
+        elif(pdb + ":secstr" in sec[x]):
+            ss_ind = x
+
+    return(seq_ind, ss_ind)
+
+
+
+
+# Helper function to actually translate the residue into a binary vector
+def binarize(res):
+    aa = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M',
+          'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+    ret = []
+    for x in aa:
+        if x == res:
+            ret.append(1)
         else:
-            al_seq1 = '-' + al_seq1
-            al_seq2 = seq2[x] + al_seq2
-            x -= 1
+            ret.append(0)
 
-    print(al_seq1)
-    print(al_seq2)
+    return(ret)
 
 
-    # Dump the rest of the chars into seq and prepend with gaps for other
-    if x > 0:
-        while x > 0:
-            al_seq1 = '-' + al_seq1
-            al_seq2 = seq2[x] + al_seq2
-            x -= 1
+# Create binary vector representation for sequences
+def vectorize(seq, window, method):
+    # Stream (up or down stream) window // 2 (we want int division)
+    stream = window // 2
 
-    elif y > 0:
-        while y > 0:
-            al_seq1 = seq1[y] + al_seq1
-            al_seq2 = '-' + al_seq2
-            y -= 1
+    # Method of feature definition, currently supported binary
+    # or blosum62
+    # 0 = binary
+    # 1 = blosum62
 
-    return (al_seq1, al_seq2)
+
+    # We need 2 arrays
+    # curr_res_vec: temp one that will hold each residue as we
+    #               work on it. [1 row, 20 AA * window columns]
+    # seq_vec: we will append the curr_res_vec one onto after
+    #               we are done proc it. [1 row, 20 AA * window columns]
+    curr_res_vec = np.empty((0, 20 * window), int)
+    seq_vec = np.empty((0, 20 * window), int)
+
+    for idx, val in enumerate(seq):
+        # empty out the array
+        curr_res_vec = np.empty((0, 20 * window), int)
+
+        # Get list of other residues inside window of our current residue being considered
+        winds = [idx]
+        # Below
+        winds += range(idx - stream, idx, 1)
+        # Above
+        winds += range(idx + 1, idx + stream + 1, 1)
+
+        # We need to loop through all these guys in our window
+        for x in winds:
+            # check if x is outside of our sequence to pad the neighborhood if it is!
+            if x >= len(seq) or x < 0:
+                # Pad all 0's
+                curr_res_vec = np.append(curr_res_vec, np.zeros(20))
+            else:
+                res = seq[x]
+
+                if method == 0:
+                    # create binary vector using aa vector
+                    curr_res_vec = np.append(curr_res_vec, binarize(res))
+                elif method == 1:
+                    curr_res_vec = np.append(curr_res_vec, blos[res])
+                else:
+                    raise ValueError('method needs to be 0 for binary or 1 for blosum62, not %s as you entered!' % str(method))
+        # Moving onto next residue so append our results for this one to
+        # our seq_vec
+        seq_vec = np.vstack((seq_vec, curr_res_vec))
+
+    return(seq_vec)
+
+
+
+
 
 
 def main():
+    keep = pd.DataFrame(columns=['name','seq','sec', 'vect'])
 
-    seqs = get_seqs()
-    seq1 = seqs[0]
-    seq2 = seqs[1]
+    tmp = get_pdb("neuro")
 
-    seq1 = "-" + seq1
-    seq2 = "-" + seq2
+    for pdb in tmp:
+        inds = get_ind(pdb,sec)
+        seq_ind = inds[0]
+        ss_ind = inds[1]
+        seq = pull_full_text(seq_ind, sec)
+        ss = pull_full_text(ss_ind, sec)
+        ss = trans_ss(ss)
 
-    print("Sequence 1: ", seq1)
-    print("Sequence 2: ", seq2)
-
-
-
-    build = ps_build_tab(seq1, seq2)
-
-    tab = build[0]
-    dir = build[1]
-
-    # Pretty print
-    pretty_print(seq1, seq2, tab, dir)
+        vec = vectorize(seq, 5, 1)
+        keep = keep.append({'name': pdb, 'seq': seq,'sec': ss, 'vect': vec}, pdb)
 
 
-    al = ps_align(seq1, seq2, tab, dir)
-    align_seq1 = al[0]
-    align_seq2 = al[1]
 
-    print("=========================")
-    print(align_seq1)
-    print(align_seq2)
-    print("=========================")
 
-    # Run other way
-    build = ps_build_tab(seq2, seq1)
 
-    tab = build[0]
-    dir = build[1]
 
-    # Pretty print
-    pretty_print(seq2, seq1, tab, dir)
-    al = ps_align(seq2, seq1, tab, dir)
-    align_seq1 = al[0]
-    align_seq2 = al[1]
-    print("=========================")
-    print(align_seq1)
-    print(align_seq2)
-    print("=========================")
+def run_knn(dat, labs):
+    from sklearn.model_selection import KFold
+    from sklearn.model_selection import cross_val_score
+
+    metrics = ['euclidean', 'manhattan', 'chebyshev', 'canberra', 'braycurtis']
+    nebs = list(range(3, 15, 2))
+
+    # Need to test each metric and each number of neighbors
+    for metric in metrics:
+        print("Testing metric: ", metric)
+        for neb in nebs:
+            print("Testing neb: ", neb)
+            nn = NearestNeighbors(n_neighbors=neb, metric=metric)
+            cv = KFold(n_splits=10, shuffle=True)
+            scoring = cross_val_score(estimator = nn, X = dat, y = labs,
+                                      scoring = 'accuracy', cv = cv)
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     main()
